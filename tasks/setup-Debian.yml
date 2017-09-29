@@ -27,3 +27,35 @@
           - "ib_logfile0"
           - "ib_logfile1"
   when: mysql_installed.stat.exists == false
+
+- name: Allow access to datadir through apparmor (if not default location)
+  template:
+    src: "apparmor_mysqld.j2"
+    dest: /etc/apparmor.d/local/usr.sbin.mysqld
+    owner: root
+    group: root
+    mode: 0644
+  when: mysql_datadir != "/var/lib/mysql"
+  register: apparmor_profile
+
+- name: Restart apparmor
+  service: "name=apparmor state=restarted"
+  when: apparmor_profile.changed
+
+- name: Create datadir if it does not exist
+  file:
+    path: "{{ mysql_datadir }}"
+    state: directory
+    owner: mysql
+    group: mysql
+    mode:  0755
+    setype: mysqld_db_t
+
+- name: Check if datadir is empty
+  find:
+    path: "{{ mysql_datadir }}"
+  register: datadir_files
+
+- name: Init database in datadir if it is empty
+  command: mysqld --user=mysql --datadir={{ mysql_datadir }} --initialize-insecure
+  when: datadir_files.matched|int == 0
